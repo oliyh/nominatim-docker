@@ -2,6 +2,8 @@
 
 OSMFILE=${PROJECT_DIR}/data.osm.pbf
 
+cp /app/postgres-import.conf /etc/postgresql/12/main/conf.d/postgres-import.conf
+
 if [ "$IMPORT_WIKIPEDIA" = "true" ]; then
   echo "Downloading Wikipedia importance dump"
   curl https://www.nominatim.org/data/wikimedia-importance.sql.gz -o ${PROJECT_DIR}/wikimedia-importance.sql.gz
@@ -21,9 +23,10 @@ else
   echo "Skipping optional US postcode import"
 fi;
 
-
-echo Downloading OSM extract from "$PBF_URL"
-curl -L "$PBF_URL" --create-dirs -o $OSMFILE
+if [ ! -f $OSMFILE ]; then
+  echo Downloading OSM extract from "$PBF_URL"
+  curl -L "$PBF_URL" --create-dirs -o $OSMFILE
+fi
 
 # if we use a bind mount then the PG directory is empty and we have to create it
 if [ ! -f /var/lib/postgresql/12/main/PG_VERSION ]; then
@@ -45,12 +48,15 @@ chown -R nominatim:nominatim ${PROJECT_DIR}
 cd ${PROJECT_DIR}
 sudo -E -u nominatim nominatim import --osm-file $OSMFILE --threads $THREADS
 sudo -u nominatim nominatim admin --check-database
-sudo -E -u nominatim nominatim replication --init
+
+if [ "$REPLICATION_URL" = "true" ]; then
+  sudo -E -u nominatim nominatim replication --init
+fi
 
 sudo service postgresql stop
 
 # Remove slightly unsafe postgres config overrides that made the import faster
-rm /etc/postgresql/12/main/conf.d/postgres-import.conf
+rm -f /etc/postgresql/12/main/conf.d/postgres-import.conf
 
 echo "Deleting downloaded dumps in ${PROJECT_DIR}"
 rm -f ${PROJECT_DIR}/*sql.gz ${OSMFILE}
